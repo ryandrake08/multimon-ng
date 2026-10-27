@@ -259,6 +259,7 @@ if( BUILD_GEN_NG )
 		gen_clipfsk.c
 		gen_flex.c
 		gen_pocsag.c
+		gen_mpt1327.c
 		gen_scope.c
 		costabi.c
 		${BCH_SOURCE}

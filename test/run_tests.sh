@@ -349,6 +349,43 @@ if [ $GEN_NG_AVAILABLE -eq 1 ]; then
         '-P "InvNorm" -A 66666 -I' "POCSAG1200" "-P normal" || FAILED=1
     
     echo
+    echo "MPT1327 end-to-end tests:"
+
+    # Codewords as 48 information bits: ALH, GTC, ACK, AHYQ, BCAST, CAT 001 address
+    # codeword with two data codewords, MOVE; made-up system and identities
+    MPT1327_CODEWORDS="800004015800,8c0ac83d8a98,8c0acc2054c0,8c0acc5bffd1,96190c70cc00,8c0acc840000,0123456789ab,0fedcba98765,8c0acc6dc828"
+
+    run_gen_decode_test "MPT1327 control channel" \
+        "-m $MPT1327_CODEWORDS -M 0x1234" "MPT1327" \
+        "MPT1327: ALH PFIX=0 IDENT1=DUMMYI CHAN4=5 WT=3 M=0 N=0" \
+        "MPT1327: CCSC SYS=1234" \
+        "MPT1327: GTC PFIX=12 IDENT1=345 D=0 CHAN=123 IDENT2=678 N=0" \
+        "MPT1327: ACK PFIX=12 IDENT1=345 IDENT2=678 QUAL=0 N=0" \
+        "MPT1327: AHYQ PFIX=12 IDENT1=345 IDENT2=TSCI STATUS=17" \
+        "MPT1327: BCAST SYSDEF=5 SYS=4321 CHAN=204 ADJSITE=0" \
+        "MPT1327: CAT=001 PFIX=12 IDENT1=345 PARAMS=0x040000" \
+        "MPT1327: DATA 0x0123456789ab" \
+        "MPT1327: DATA 0x0fedcba98765" \
+        "MPT1327: MOVE PFIX=12 IDENT1=345 CONT=456 M=5" || FAILED=1
+
+    # One data codeword: a filler data codeword keeps the slot structure (3.3.3.2)
+    run_gen_decode_test "MPT1327 odd data codewords" \
+        "-m 800004015800,0123456789ab,8c0acc2054c0 -M 0x1234" "MPT1327" \
+        "MPT1327: DATA 0x0123456789ab" \
+        "MPT1327: DATA 0x000000000000" \
+        "MPT1327: ACK PFIX=12 IDENT1=345 IDENT2=678 QUAL=0 N=0" || FAILED=1
+
+    run_gen_decode_test "MPT1327 1-bit errors" \
+        "-m $MPT1327_CODEWORDS -M 0x1234 -e 1" "MPT1327" \
+        "MPT1327: CCSC SYS=1234" \
+        "MPT1327: GTC PFIX=12 IDENT1=345 D=0 CHAN=123 IDENT2=678 N=0" \
+        "MPT1327: DATA 0x0fedcba98765" \
+        "MPT1327: MOVE PFIX=12 IDENT1=345 CONT=456 M=5" || FAILED=1
+
+    run_gen_decode_expect_fail "MPT1327 2-bit errors (uncorrectable)" \
+        "-m $MPT1327_CODEWORDS -M 0x1234 -e 2" "MPT1327" || FAILED=1
+
+    echo
     echo "WAV roundtrip tests (sox integration):"
     
     run_gen_decode_wav_test "POCSAG wav roundtrip" \
