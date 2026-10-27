@@ -5,6 +5,15 @@
 #include "../demod_mpt1327.c"
 
 static char printed[256];
+int json_mode;
+
+void addJsonTimestamp(cJSON *json_output) { (void)json_output; }
+
+void printJson(cJSON *json_output) {
+    char *json = cJSON_PrintUnformatted(json_output);
+    snprintf(printed, sizeof(printed), "%s\n", json);
+    cJSON_free(json);
+}
 
 void _verbprintf(int level, const char *fmt, ...) {
     va_list args;
@@ -25,6 +34,12 @@ static void check_line(uint64_t cw, const char *expected) {
                 cw, printed, expected);
         failed = 1;
     }
+}
+
+static void check_json(uint64_t cw, const char *expected) {
+    json_mode = 1;
+    check_line(cw, expected);
+    json_mode = 0;
 }
 
 /* Feeds the n low bits of value to the receiver, most significant first */
@@ -94,6 +109,16 @@ int main(void) {
     check_line(0x8C0ACC5BFFD1B4DDULL, "MPT1327: AHYQ PFIX=12 IDENT1=345 IDENT2=TSCI STATUS=17\n");
     check_line(0x96190C70CC0004CEULL, "MPT1327: BCAST SYSDEF=5 SYS=4321 CHAN=204 ADJSITE=0\n");
     check_line(0x0123456789ABC13DULL, "MPT1327: DATA 0x0123456789ab\n");
+
+    check_json(ccsc, "{\"demod_name\":\"MPT1327\",\"message\":\"CCSC\",\"sys\":\"1234\"}\n");
+    check_json(gtc, "{\"demod_name\":\"MPT1327\",\"message\":\"GTC\",\"pfix\":12,\"ident1\":345,"
+                    "\"d\":1,\"chan\":123,\"ident2\":678,\"n\":2}\n");
+    check_json(0x8C0ACC5BFFD1B4DDULL,
+               "{\"demod_name\":\"MPT1327\",\"message\":\"AHYQ\",\"pfix\":12,"
+               "\"ident1\":345,\"ident2\":8190,\"status\":17}\n");
+    check_json(0x0123456789ABC13DULL,
+               "{\"demod_name\":\"MPT1327\",\"message\":\"DATA\",\"info\":\"0x0123456789ab\"}\n");
+
     check_traffic_messages();
     return failed;
 }

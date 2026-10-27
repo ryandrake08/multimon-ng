@@ -29,6 +29,7 @@
 #include "filter.h"
 #include <inttypes.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------- */
@@ -54,6 +55,8 @@
 
 /* x^15 + x^14 + x^13 + x^11 + x^4 + x^2 + 1 without the x^15 term (3.2.3) */
 #define GENERATOR 0x6815u
+
+extern int json_mode;
 
 static float corr_1_i[CORRLEN];
 static float corr_1_q[CORRLEN];
@@ -124,8 +127,8 @@ static int mpt1327_is_ccsc(uint64_t cw)
 
 /* ---------------------------------------------------------------------- */
 
-/* Prints an ident, by name for the special idents (table 4-1) */
-static void mpt1327_print_ident(const char *label, unsigned int ident)
+/* An ident as text: by name for the special idents (table 4-1), otherwise its number */
+static const char *mpt1327_ident(char *buf, size_t size, unsigned int ident)
 {
     static const char *const special[] = { "PSTNGI", "PABXI", "DNI" };
     static const char *const special2[] = {
@@ -133,22 +136,28 @@ static void mpt1327_print_ident(const char *label, unsigned int ident)
     };
 
     if (ident == 0)
-        verbprintf(0, " %s=DUMMYI", label);
-    else if (ident >= 8101 && ident <= 8103)
-        verbprintf(0, " %s=%s", label, special[ident - 8101]);
-    else if (ident >= 8185)
-        verbprintf(0, " %s=%s", label, special2[ident - 8185]);
-    else
-        verbprintf(0, " %s=%u", label, ident);
+        return "DUMMYI";
+    if (ident >= 8101 && ident <= 8103)
+        return special[ident - 8101];
+    if (ident >= 8185)
+        return special2[ident - 8185];
+    snprintf(buf, size, "%u", ident);
+    return buf;
 }
 
-static void mpt1327_print_address(uint64_t cw)
+/* A field as a string of n binary digits */
+static const char *mpt1327_bits(char *buf, unsigned int value, int n)
 {
-    verbprintf(0, " PFIX=%u", mpt1327_field(cw, 2, 8));
-    mpt1327_print_ident("IDENT1", mpt1327_field(cw, 9, 21));
+    int i;
+
+    for (i = 0; i < n; i++)
+        buf[i] = (char)('0' + ((value >> (n - 1 - i)) & 1));
+    buf[n] = '\0';
+    return buf;
 }
 
-/* Prints one codeword: names and layouts from section 5 */
+/* Prints one codeword as a text line, or as a JSON object with --json.
+ * Names and layouts from section 5. */
 static void mpt1327_print(uint64_t cw)
 {
     /* CAT '000' function names by TYPE (5.3) for messages from the trunking system
@@ -159,102 +168,261 @@ static void mpt1327_print(uint64_t cw)
         { "AHY", NULL, "AHYX", NULL, NULL, "AHYP", "AHYQ", "AHYC" },
         { "MARK", "MAINT", "CLEAR", "MOVE", "BCAST", NULL, NULL, NULL },
     };
-    unsigned int cat, type, func, sysdef;
+    cJSON *json_output = json_mode ? cJSON_CreateObject() : NULL;
+    unsigned int pfix = mpt1327_field(cw, 2, 8);
+    unsigned int ident1 = mpt1327_field(cw, 9, 21);
+    unsigned int cat = mpt1327_field(cw, 23, 25);
+    unsigned int type = mpt1327_field(cw, 26, 27);
+    unsigned int func = mpt1327_field(cw, 28, 30);
+    unsigned int ident2, sysdef;
     const char *name;
+    char id1[8], id2[8], bits[3][4], hex[24];
 
-    verbprintf(0, "MPT1327:");
-    if (mpt1327_field(cw, 1, 1) == 0) {
-        if (mpt1327_is_ccsc(cw))
-            verbprintf(0, " CCSC SYS=%04X\n", mpt1327_field(cw, 2, 16));
-        else
-            verbprintf(0, " DATA 0x%012" PRIx64 "\n", (uint64_t)((cw >> 16) & 0x7FFFFFFFFFFFULL));
-        return;
-    }
-    if (mpt1327_field(cw, 22, 22) == 0) {
-        verbprintf(0, " GTC");
-        mpt1327_print_address(cw);
-        verbprintf(0, " D=%u CHAN=%u", mpt1327_field(cw, 23, 23), mpt1327_field(cw, 24, 33));
-        mpt1327_print_ident("IDENT2", mpt1327_field(cw, 34, 46));
-        verbprintf(0, " N=%u\n", mpt1327_field(cw, 47, 48));
-        return;
-    }
-    cat = mpt1327_field(cw, 23, 25);
-    type = mpt1327_field(cw, 26, 27);
-    func = mpt1327_field(cw, 28, 30);
-    if (cat != 0) {
-        verbprintf(0, " CAT=%u%u%u", cat >> 2, (cat >> 1) & 1, cat & 1);
-        mpt1327_print_address(cw);
-        verbprintf(0, " PARAMS=0x%06x\n", mpt1327_field(cw, 26, 48));
-        return;
-    }
-    name = funcs[type][func];
-    if (name == NULL) {
-        verbprintf(0, " CAT=000 TYPE=%u%u FUNC=%u%u%u",
-                   type >> 1, type & 1, func >> 2, (func >> 1) & 1, func & 1);
-        mpt1327_print_address(cw);
-        verbprintf(0, " PARAMS=0x%05x\n", mpt1327_field(cw, 31, 48));
-        return;
-    }
-    verbprintf(0, " %s", name);
-    switch (type) {
-    case 0: /* Aloha (5.5.1) */
-        mpt1327_print_address(cw);
-        verbprintf(0, " CHAN4=%u WT=%u M=%u N=%u\n",
-                   mpt1327_field(cw, 31, 34), mpt1327_field(cw, 35, 37),
-                   mpt1327_field(cw, 40, 44), mpt1327_field(cw, 45, 48));
-        return;
-    case 1: /* acknowledgement (5.5.2) */
-        mpt1327_print_address(cw);
-        mpt1327_print_ident("IDENT2", mpt1327_field(cw, 31, 43));
-        verbprintf(0, " QUAL=%u N=%u\n", mpt1327_field(cw, 44, 44), mpt1327_field(cw, 45, 48));
-        return;
-    case 2: /* Ahoy (5.5.3.2) */
-        mpt1327_print_address(cw);
-        mpt1327_print_ident("IDENT2", mpt1327_field(cw, 31, 43));
-        if (func == 0)
-            verbprintf(0, " D=%u POINT=%u CHECK=%u E=%u AD=%u",
-                       mpt1327_field(cw, 44, 44), mpt1327_field(cw, 45, 45),
-                       mpt1327_field(cw, 46, 46), mpt1327_field(cw, 47, 47),
-                       mpt1327_field(cw, 48, 48));
-        else if (func == 6)
-            verbprintf(0, " STATUS=%u", mpt1327_field(cw, 44, 48));
-        else if (func == 7)
-            verbprintf(0, " SLOTS=%u DESC=%u",
-                       mpt1327_field(cw, 44, 45), mpt1327_field(cw, 46, 48));
-        verbprintf(0, "\n");
-        return;
-    }
-    /* miscellaneous (5.5.4) */
-    switch (func) {
-    case 0: /* MARK */
-        verbprintf(0, " CHAN4=%u SYS=%04X\n", mpt1327_field(cw, 2, 5), mpt1327_field(cw, 7, 21));
-        return;
-    case 1: /* MAINT */
-        mpt1327_print_address(cw);
-        verbprintf(0, " CHAN=%u OPER=%u\n", mpt1327_field(cw, 31, 40), mpt1327_field(cw, 41, 43));
-        return;
-    case 2: /* CLEAR */
-        verbprintf(0, " CHAN=%u CONT=%u\n", mpt1327_field(cw, 2, 11), mpt1327_field(cw, 12, 21));
-        return;
-    case 3: /* MOVE */
-        mpt1327_print_address(cw);
-        verbprintf(0, " CONT=%u M=%u\n", mpt1327_field(cw, 31, 40), mpt1327_field(cw, 41, 45));
-        return;
-    }
-    /* BCAST */
-    sysdef = mpt1327_field(cw, 2, 6);
-    verbprintf(0, " SYSDEF=%u SYS=%04X", sysdef, mpt1327_field(cw, 7, 21));
-    if (sysdef == 0 || sysdef == 1)
-        verbprintf(0, " CHAN=%u\n", mpt1327_field(cw, 31, 40));
-    else if (sysdef == 2)
-        verbprintf(0, " PER=%u IVAL=%u PON=%u ID=%u\n",
-                   mpt1327_field(cw, 31, 31), mpt1327_field(cw, 32, 36),
-                   mpt1327_field(cw, 37, 37), mpt1327_field(cw, 38, 38));
-    else if (sysdef == 4 || sysdef == 5)
-        verbprintf(0, " CHAN=%u ADJSITE=%u\n",
-                   mpt1327_field(cw, 31, 40), mpt1327_field(cw, 45, 48));
+    if (!json_mode)
+        verbprintf(0, "MPT1327:");
     else
-        verbprintf(0, " PARAMS=0x%05x\n", mpt1327_field(cw, 31, 48));
+        cJSON_AddStringToObject(json_output, "demod_name", "MPT1327");
+
+    if (mpt1327_field(cw, 1, 1) == 0) {
+        if (mpt1327_is_ccsc(cw)) {
+            snprintf(hex, sizeof(hex), "%04X", mpt1327_field(cw, 2, 16));
+            if (!json_mode)
+                verbprintf(0, " CCSC SYS=%s", hex);
+            else {
+                cJSON_AddStringToObject(json_output, "message", "CCSC");
+                cJSON_AddStringToObject(json_output, "sys", hex);
+            }
+        } else {
+            /* information field of a data codeword */
+            snprintf(hex, sizeof(hex), "0x%012" PRIx64, (uint64_t)((cw >> 16) & 0x7FFFFFFFFFFFULL));
+            if (!json_mode)
+                verbprintf(0, " DATA %s", hex);
+            else {
+                cJSON_AddStringToObject(json_output, "message", "DATA");
+                cJSON_AddStringToObject(json_output, "info", hex);
+            }
+        }
+    } else if (mpt1327_field(cw, 22, 22) == 0) {
+        /* Go To Channel (5.4) */
+        ident2 = mpt1327_field(cw, 34, 46);
+        if (!json_mode)
+            verbprintf(0, " GTC PFIX=%u IDENT1=%s D=%u CHAN=%u IDENT2=%s N=%u",
+                       pfix, mpt1327_ident(id1, sizeof(id1), ident1), mpt1327_field(cw, 23, 23),
+                       mpt1327_field(cw, 24, 33), mpt1327_ident(id2, sizeof(id2), ident2),
+                       mpt1327_field(cw, 47, 48));
+        else {
+            cJSON_AddStringToObject(json_output, "message", "GTC");
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddNumberToObject(json_output, "d", mpt1327_field(cw, 23, 23));
+            cJSON_AddNumberToObject(json_output, "chan", mpt1327_field(cw, 24, 33));
+            cJSON_AddNumberToObject(json_output, "ident2", ident2);
+            cJSON_AddNumberToObject(json_output, "n", mpt1327_field(cw, 47, 48));
+        }
+    } else if (cat != 0) {
+        /* categories other than '000': parameters in hex */
+        snprintf(hex, sizeof(hex), "0x%06x", mpt1327_field(cw, 26, 48));
+        if (!json_mode)
+            verbprintf(0, " CAT=%s PFIX=%u IDENT1=%s PARAMS=%s", mpt1327_bits(bits[0], cat, 3),
+                       pfix, mpt1327_ident(id1, sizeof(id1), ident1), hex);
+        else {
+            cJSON_AddStringToObject(json_output, "cat", mpt1327_bits(bits[0], cat, 3));
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddStringToObject(json_output, "params", hex);
+        }
+    } else if ((name = funcs[type][func]) == NULL) {
+        /* spare and reserved functions: parameters in hex */
+        snprintf(hex, sizeof(hex), "0x%05x", mpt1327_field(cw, 31, 48));
+        mpt1327_bits(bits[0], cat, 3);
+        mpt1327_bits(bits[1], type, 2);
+        mpt1327_bits(bits[2], func, 3);
+        if (!json_mode)
+            verbprintf(0, " CAT=%s TYPE=%s FUNC=%s PFIX=%u IDENT1=%s PARAMS=%s", bits[0], bits[1],
+                       bits[2], pfix, mpt1327_ident(id1, sizeof(id1), ident1), hex);
+        else {
+            cJSON_AddStringToObject(json_output, "cat", bits[0]);
+            cJSON_AddStringToObject(json_output, "type", bits[1]);
+            cJSON_AddStringToObject(json_output, "func", bits[2]);
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddStringToObject(json_output, "params", hex);
+        }
+    } else if (type == 0) {
+        /* Aloha (5.5.1) */
+        if (!json_mode)
+            verbprintf(0, " %s PFIX=%u IDENT1=%s CHAN4=%u WT=%u M=%u N=%u",
+                       name, pfix, mpt1327_ident(id1, sizeof(id1), ident1),
+                       mpt1327_field(cw, 31, 34), mpt1327_field(cw, 35, 37),
+                       mpt1327_field(cw, 40, 44), mpt1327_field(cw, 45, 48));
+        else {
+            cJSON_AddStringToObject(json_output, "message", name);
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddNumberToObject(json_output, "chan4", mpt1327_field(cw, 31, 34));
+            cJSON_AddNumberToObject(json_output, "wt", mpt1327_field(cw, 35, 37));
+            cJSON_AddNumberToObject(json_output, "m", mpt1327_field(cw, 40, 44));
+            cJSON_AddNumberToObject(json_output, "n", mpt1327_field(cw, 45, 48));
+        }
+    } else if (type == 1) {
+        /* acknowledgement (5.5.2) */
+        ident2 = mpt1327_field(cw, 31, 43);
+        if (!json_mode)
+            verbprintf(0, " %s PFIX=%u IDENT1=%s IDENT2=%s QUAL=%u N=%u",
+                       name, pfix, mpt1327_ident(id1, sizeof(id1), ident1),
+                       mpt1327_ident(id2, sizeof(id2), ident2),
+                       mpt1327_field(cw, 44, 44), mpt1327_field(cw, 45, 48));
+        else {
+            cJSON_AddStringToObject(json_output, "message", name);
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddNumberToObject(json_output, "ident2", ident2);
+            cJSON_AddNumberToObject(json_output, "qual", mpt1327_field(cw, 44, 44));
+            cJSON_AddNumberToObject(json_output, "n", mpt1327_field(cw, 45, 48));
+        }
+    } else if (type == 2) {
+        /* Ahoy (5.5.3.2) */
+        ident2 = mpt1327_field(cw, 31, 43);
+        if (!json_mode)
+            verbprintf(0, " %s PFIX=%u IDENT1=%s IDENT2=%s", name, pfix,
+                       mpt1327_ident(id1, sizeof(id1), ident1),
+                       mpt1327_ident(id2, sizeof(id2), ident2));
+        else {
+            cJSON_AddStringToObject(json_output, "message", name);
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddNumberToObject(json_output, "ident2", ident2);
+        }
+        if (func == 0) {
+            /* AHY */
+            if (!json_mode)
+                verbprintf(0, " D=%u POINT=%u CHECK=%u E=%u AD=%u",
+                           mpt1327_field(cw, 44, 44), mpt1327_field(cw, 45, 45),
+                           mpt1327_field(cw, 46, 46), mpt1327_field(cw, 47, 47),
+                           mpt1327_field(cw, 48, 48));
+            else {
+                cJSON_AddNumberToObject(json_output, "d", mpt1327_field(cw, 44, 44));
+                cJSON_AddNumberToObject(json_output, "point", mpt1327_field(cw, 45, 45));
+                cJSON_AddNumberToObject(json_output, "check", mpt1327_field(cw, 46, 46));
+                cJSON_AddNumberToObject(json_output, "e", mpt1327_field(cw, 47, 47));
+                cJSON_AddNumberToObject(json_output, "ad", mpt1327_field(cw, 48, 48));
+            }
+        } else if (func == 6) {
+            /* AHYQ */
+            if (!json_mode)
+                verbprintf(0, " STATUS=%u", mpt1327_field(cw, 44, 48));
+            else
+                cJSON_AddNumberToObject(json_output, "status", mpt1327_field(cw, 44, 48));
+        } else if (func == 7) {
+            /* AHYC */
+            if (!json_mode)
+                verbprintf(0, " SLOTS=%u DESC=%u",
+                           mpt1327_field(cw, 44, 45), mpt1327_field(cw, 46, 48));
+            else {
+                cJSON_AddNumberToObject(json_output, "slots", mpt1327_field(cw, 44, 45));
+                cJSON_AddNumberToObject(json_output, "desc", mpt1327_field(cw, 46, 48));
+            }
+        }
+    } else if (func == 0) {
+        /* MARK (5.5.4.1) */
+        snprintf(hex, sizeof(hex), "%04X", mpt1327_field(cw, 7, 21));
+        if (!json_mode)
+            verbprintf(0, " MARK CHAN4=%u SYS=%s", mpt1327_field(cw, 2, 5), hex);
+        else {
+            cJSON_AddStringToObject(json_output, "message", "MARK");
+            cJSON_AddNumberToObject(json_output, "chan4", mpt1327_field(cw, 2, 5));
+            cJSON_AddStringToObject(json_output, "sys", hex);
+        }
+    } else if (func == 1) {
+        /* MAINT (5.5.4.2) */
+        if (!json_mode)
+            verbprintf(0, " MAINT PFIX=%u IDENT1=%s CHAN=%u OPER=%u", pfix,
+                       mpt1327_ident(id1, sizeof(id1), ident1),
+                       mpt1327_field(cw, 31, 40), mpt1327_field(cw, 41, 43));
+        else {
+            cJSON_AddStringToObject(json_output, "message", "MAINT");
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddNumberToObject(json_output, "chan", mpt1327_field(cw, 31, 40));
+            cJSON_AddNumberToObject(json_output, "oper", mpt1327_field(cw, 41, 43));
+        }
+    } else if (func == 2) {
+        /* CLEAR (5.5.4.3) */
+        if (!json_mode)
+            verbprintf(0, " CLEAR CHAN=%u CONT=%u",
+                       mpt1327_field(cw, 2, 11), mpt1327_field(cw, 12, 21));
+        else {
+            cJSON_AddStringToObject(json_output, "message", "CLEAR");
+            cJSON_AddNumberToObject(json_output, "chan", mpt1327_field(cw, 2, 11));
+            cJSON_AddNumberToObject(json_output, "cont", mpt1327_field(cw, 12, 21));
+        }
+    } else if (func == 3) {
+        /* MOVE (5.5.4.4) */
+        if (!json_mode)
+            verbprintf(0, " MOVE PFIX=%u IDENT1=%s CONT=%u M=%u", pfix,
+                       mpt1327_ident(id1, sizeof(id1), ident1),
+                       mpt1327_field(cw, 31, 40), mpt1327_field(cw, 41, 45));
+        else {
+            cJSON_AddStringToObject(json_output, "message", "MOVE");
+            cJSON_AddNumberToObject(json_output, "pfix", pfix);
+            cJSON_AddNumberToObject(json_output, "ident1", ident1);
+            cJSON_AddNumberToObject(json_output, "cont", mpt1327_field(cw, 31, 40));
+            cJSON_AddNumberToObject(json_output, "m", mpt1327_field(cw, 41, 45));
+        }
+    } else {
+        /* BCAST (5.5.4.5) */
+        sysdef = mpt1327_field(cw, 2, 6);
+        snprintf(hex, sizeof(hex), "%04X", mpt1327_field(cw, 7, 21));
+        if (!json_mode)
+            verbprintf(0, " BCAST SYSDEF=%u SYS=%s", sysdef, hex);
+        else {
+            cJSON_AddStringToObject(json_output, "message", "BCAST");
+            cJSON_AddNumberToObject(json_output, "sysdef", sysdef);
+            cJSON_AddStringToObject(json_output, "sys", hex);
+        }
+        if (sysdef == 0 || sysdef == 1) {
+            /* announce or withdraw control channel */
+            if (!json_mode)
+                verbprintf(0, " CHAN=%u", mpt1327_field(cw, 31, 40));
+            else
+                cJSON_AddNumberToObject(json_output, "chan", mpt1327_field(cw, 31, 40));
+        } else if (sysdef == 2) {
+            /* call maintenance parameters */
+            if (!json_mode)
+                verbprintf(0, " PER=%u IVAL=%u PON=%u ID=%u",
+                           mpt1327_field(cw, 31, 31), mpt1327_field(cw, 32, 36),
+                           mpt1327_field(cw, 37, 37), mpt1327_field(cw, 38, 38));
+            else {
+                cJSON_AddNumberToObject(json_output, "per", mpt1327_field(cw, 31, 31));
+                cJSON_AddNumberToObject(json_output, "ival", mpt1327_field(cw, 32, 36));
+                cJSON_AddNumberToObject(json_output, "pon", mpt1327_field(cw, 37, 37));
+                cJSON_AddNumberToObject(json_output, "id", mpt1327_field(cw, 38, 38));
+            }
+        } else if (sysdef == 4 || sysdef == 5) {
+            /* adjacent site control channel, vote now advice */
+            if (!json_mode)
+                verbprintf(0, " CHAN=%u ADJSITE=%u",
+                           mpt1327_field(cw, 31, 40), mpt1327_field(cw, 45, 48));
+            else {
+                cJSON_AddNumberToObject(json_output, "chan", mpt1327_field(cw, 31, 40));
+                cJSON_AddNumberToObject(json_output, "adjsite", mpt1327_field(cw, 45, 48));
+            }
+        } else {
+            snprintf(hex, sizeof(hex), "0x%05x", mpt1327_field(cw, 31, 48));
+            if (!json_mode)
+                verbprintf(0, " PARAMS=%s", hex);
+            else
+                cJSON_AddStringToObject(json_output, "params", hex);
+        }
+    }
+
+    if (!json_mode)
+        verbprintf(0, "\n");
+    else {
+        addJsonTimestamp(json_output);
+        printJson(json_output);
+        cJSON_Delete(json_output);
+    }
 }
 
 /* ---------------------------------------------------------------------- */

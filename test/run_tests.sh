@@ -385,6 +385,13 @@ if [ $GEN_NG_AVAILABLE -eq 1 ]; then
     run_gen_decode_expect_fail "MPT1327 2-bit errors (uncorrectable)" \
         "-m $MPT1327_CODEWORDS -M 0x1234 -e 2" "MPT1327" || FAILED=1
 
+    run_gen_decode_test_with_opts "MPT1327 JSON" \
+        "-m $MPT1327_CODEWORDS -M 0x1234" "MPT1327" "--json" \
+        '{"demod_name":"MPT1327","message":"CCSC","sys":"1234"}' \
+        '{"demod_name":"MPT1327","message":"GTC","pfix":12,"ident1":345,"d":0,"chan":123,"ident2":678,"n":0}' \
+        '{"demod_name":"MPT1327","message":"AHYQ","pfix":12,"ident1":345,"ident2":8190,"status":17}' \
+        '{"demod_name":"MPT1327","message":"DATA","info":"0x0fedcba98765"}' || FAILED=1
+
     echo
     echo "WAV roundtrip tests (sox integration):"
     
