@@ -215,6 +215,7 @@ set( SOURCES ${SOURCES}
 	demod_dualtone.c
 	demod_clipfsk.c
 	demod_fmsfsk.c
+	demod_mpt1327.c
 	demod_afsk24.c
 	demod_afsk24_3.c
 	demod_afsk24_2.c
@@ -281,7 +282,7 @@ endif()
 
 include(CTest)
 if( BUILD_TESTING AND NOT WIN32 AND BCH_SOURCE STREQUAL "bch.c" )
-	foreach( TEST_NAME IN ITEMS flex_next flex_address gen_flex )
+	foreach( TEST_NAME IN ITEMS flex_next flex_address gen_flex mpt1327 )
 		set( TEST_SOURCES test/test_${TEST_NAME}.c bch.c )
 		if( TEST_NAME STREQUAL "gen_flex" )
 			list( APPEND TEST_SOURCES gen_flex.c )
