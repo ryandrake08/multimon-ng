@@ -262,6 +262,11 @@ if [ $GEN_NG_AVAILABLE -eq 1 ]; then
     run_gen_decode_no_output_test "LTR voice tones only" \
         "-s 700 -a 0.6 -s 1300 -a 0.4" "LTR" || FAILED=1
 
+    run_gen_decode_test_with_opts "LTR JSON" \
+        "-l $LTR_WORDS" "LTR" "--json" \
+        '{"demod_name":"LTR","message":"IDLE","area":0,"chan":1,"home":1,"group":255,"free":1}' \
+        '{"demod_name":"LTR","message":"TURNOFF","area":0,"chan":31,"home":5,"group":112,"free":5}' || FAILED=1
+
     echo
     echo "FLEX end-to-end tests:"
     

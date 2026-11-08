@@ -67,6 +67,8 @@
  */
 #define MIN_EYE 0.25f
 
+extern int json_mode;
+
 static float filt[FILTLEN];
 
 /* checksum contribution of each data bit, from the area bit to the last free repeater bit */
@@ -96,9 +98,10 @@ static int ltr_valid(uint64_t word)
            ltr_checksum((uint32_t)(word >> 7) & 0xFFFFFF) == (unsigned int)(word & 0x7F);
 }
 
-/* Prints one word as a text line */
+/* Prints one word as a text line, or as a JSON object with --json */
 static void ltr_print(uint64_t word)
 {
+    cJSON *json_output = json_mode ? cJSON_CreateObject() : NULL;
     unsigned int area = (unsigned int)(word >> 30) & 1;
     unsigned int chan = (unsigned int)(word >> 25) & 0x1F;
     unsigned int home = (unsigned int)(word >> 20) & 0x1F;
@@ -106,8 +109,21 @@ static void ltr_print(uint64_t word)
     unsigned int free_rep = (unsigned int)(word >> 7) & 0x1F;
     const char *name = chan == 31 ? "TURNOFF" : group == 255 ? "IDLE" : "CALL";
 
-    verbprintf(0, "LTR: %s AREA=%u CHAN=%u HOME=%u GROUP=%u FREE=%u\n",
-               name, area, chan, home, group, free_rep);
+    if (!json_mode) {
+        verbprintf(0, "LTR: %s AREA=%u CHAN=%u HOME=%u GROUP=%u FREE=%u\n",
+                   name, area, chan, home, group, free_rep);
+        return;
+    }
+    cJSON_AddStringToObject(json_output, "demod_name", "LTR");
+    cJSON_AddStringToObject(json_output, "message", name);
+    cJSON_AddNumberToObject(json_output, "area", area);
+    cJSON_AddNumberToObject(json_output, "chan", chan);
+    cJSON_AddNumberToObject(json_output, "home", home);
+    cJSON_AddNumberToObject(json_output, "group", group);
+    cJSON_AddNumberToObject(json_output, "free", free_rep);
+    addJsonTimestamp(json_output);
+    printJson(json_output);
+    cJSON_Delete(json_output);
 }
 
 /* ---------------------------------------------------------------------- */
