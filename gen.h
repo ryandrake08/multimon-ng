@@ -34,7 +34,7 @@ extern const int costabi[0x400];
 
 #define COS(x) costabi[(((x)>>6)&0x3ffu)]
 
-enum gen_type { gentype_dtmf, gentype_sine, gentype_zvei, gentype_hdlc, gentype_uart, gentype_clipfsk, gentype_flex, gentype_pocsag };
+enum gen_type { gentype_dtmf, gentype_sine, gentype_zvei, gentype_hdlc, gentype_uart, gentype_clipfsk, gentype_flex, gentype_pocsag, gentype_ltr };
 
 struct gen_params {
 	enum gen_type type;
@@ -82,6 +82,11 @@ struct gen_params {
 			uint32_t *group_capcodes;
 			int group_count;
 		} flex;
+		struct {
+			uint32_t data[32]; /* data bits of each word: area, channel, home, group, free */
+			int count;
+			int errors;        /* bit errors to inject in every word (0-2) */
+		} ltr;
 		struct {
 			uint32_t address;
 			int function;      /* 0=numeric, 1-3=alphanumeric */
@@ -135,6 +140,11 @@ struct gen_state {
 			unsigned char *data;   /* heap-allocated; size = datalen bytes */
 		} flex;
 		struct {
+			unsigned int sample;
+			unsigned int nbits;
+			signed char level[1536]; /* +1, -1, or 0 for no data */
+		} ltr;
+		struct {
 			int bit_idx;
 			float bitph;
 			int baud;
@@ -164,6 +174,9 @@ extern int gen_hdlc(signed short *buf, int buflen, struct gen_params *p, struct 
 
 extern void gen_init_flex(struct gen_params *p, struct gen_state *s);
 extern int gen_flex(signed short *buf, int buflen, struct gen_params *p, struct gen_state *s);
+
+extern void gen_init_ltr(struct gen_params *p, struct gen_state *s);
+extern int gen_ltr(signed short *buf, int buflen, struct gen_params *p, struct gen_state *s);
 
 extern void gen_init_pocsag(struct gen_params *p, struct gen_state *s);
 extern int gen_pocsag(signed short *buf, int buflen, struct gen_params *p, struct gen_state *s);

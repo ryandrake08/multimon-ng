@@ -129,11 +129,12 @@ typedef void (*t_init_procs)(struct gen_params *, struct gen_state *);
 typedef int (*t_gen_procs)(signed short *, int, struct gen_params *, struct gen_state *);
 
 static const t_init_procs init_procs[] = {
-	gen_init_dtmf, gen_init_sine, gen_init_zvei, gen_init_hdlc, gen_init_uart, gen_init_clipfsk, gen_init_flex, gen_init_pocsag
+	gen_init_dtmf, gen_init_sine, gen_init_zvei, gen_init_hdlc, gen_init_uart, gen_init_clipfsk, gen_init_flex, gen_init_pocsag,
+	gen_init_ltr
 };
 
 static const t_gen_procs gen_procs[] = {
-	gen_dtmf, gen_sine, gen_zvei, gen_hdlc, gen_uart, gen_clipfsk, gen_flex, gen_pocsag
+	gen_dtmf, gen_sine, gen_zvei, gen_hdlc, gen_uart, gen_clipfsk, gen_flex, gen_pocsag, gen_ltr
 };
 
 /* ---------------------------------------------------------------------- */
@@ -574,6 +575,8 @@ static const char usage_str[] = "Generates test signals\n"
 "  -u <text>  : encode uart string\n"
 "  -p <text>  : encode hdlc packet\n"
 "  -c <str>   : encode CLIP FSK string\n"
+"  -l <hex>[,<hex>...] : encode LTR-Standard repeater output words, each given as its\n"
+"                        24 data bits (6 hex digits, up to 32 words)\n"
 "  -f <msg>   : encode FLEX pager message\n"
 "     -F <capcode> : FLEX short pager address, 1..1933312 (default: 1234567)\n"
 "     -G <start:count>  : encode as FLEX_NEXT group call; enroll `count` consecutive\n"
@@ -590,6 +593,7 @@ static const char usage_str[] = "Generates test signals\n"
 "               FLEX: first 10 data codewords; -e 1/2 also corrupt the FIW.\n"
 "               -e 3 leaves the FIW clean to exercise data-error handling.\n"
 "               FLEX group calls (-G) are not modified by -e.\n"
+"               LTR: 0-2 bit errors in the data and checksum of every word.\n"
 "  -h         : this help\n";
 
 int main(int argc, char *argv[])
@@ -604,7 +608,7 @@ int main(int argc, char *argv[])
 
 	fprintf(stdout, "gen-ng - (C) 1997 by Tom Sailer HB9JNX/AE4WA\n"
                     "         (C) 2012/2013 by Elias Oenal\n");	
-	while ((c = getopt(argc, argv, "t:a:d:s:z:p:u:c:f:F:G:e:P:A:B:S:NIh")) != EOF) {
+	while ((c = getopt(argc, argv, "t:a:d:s:z:p:u:c:l:f:F:G:e:P:A:B:S:NIh")) != EOF) {
 		switch (c) {
 		case 'h':
 		case '?':
@@ -714,6 +718,36 @@ int main(int argc, char *argv[])
 			if (params[num_gen-1].p.clipfsk.pktlen > (int)sizeof(params[num_gen-1].p.clipfsk.pkt))
 				params[num_gen-1].p.clipfsk.pktlen = sizeof(params[num_gen-1].p.clipfsk.pkt);
 			memcpy(params[num_gen-1].p.clipfsk.pkt, optarg, params[num_gen-1].p.clipfsk.pktlen);
+			break;
+
+		case 'l':
+			if (num_gen >= MAX_GEN) {
+				fprintf(stderr, "gen: too many generators\n");
+				errflg++;
+				break;
+			}
+			num_gen++;
+			params[num_gen-1].type = gentype_ltr;
+			params[num_gen-1].ampl = 16384;
+			params[num_gen-1].p.ltr.count = 0;
+			params[num_gen-1].p.ltr.errors = 0;
+			for (cp = optarg; *cp; ) {
+				char *end;
+				unsigned long data;
+				int max = (int)(sizeof(params[num_gen-1].p.ltr.data) /
+				                sizeof(params[num_gen-1].p.ltr.data[0]));
+
+				errno = 0;
+				data = strtoul(cp, &end, 16);
+				if (end == cp || errno == ERANGE || data > 0xFFFFFFUL ||
+				    (*end && *end != ',') || params[num_gen-1].p.ltr.count >= max) {
+					fprintf(stderr, "gen: -l requires up to %d comma-separated 24-bit hex values\n", max);
+					errflg++;
+					break;
+				}
+				params[num_gen-1].p.ltr.data[params[num_gen-1].p.ltr.count++] = (uint32_t)data;
+				cp = *end ? end + 1 : end;
+			}
 			break;
 
 		case 'p':
@@ -871,7 +905,7 @@ int main(int argc, char *argv[])
 
 		case 'e':
 			if (num_gen <= 0) {
-				fprintf(stderr, "gen: -e requires -f or -P first\n");
+				fprintf(stderr, "gen: -e requires -f, -P or -l first\n");
 				errflg++;
 				break;
 			}
@@ -881,6 +915,12 @@ int main(int argc, char *argv[])
 					fprintf(stderr, "gen: -e must be 0-3\n");
 					errflg++;
 				}
+			} else if (params[num_gen-1].type == gentype_ltr) {
+				params[num_gen-1].p.ltr.errors = atoi(optarg);
+				if (params[num_gen-1].p.ltr.errors < 0 || params[num_gen-1].p.ltr.errors > 2) {
+					fprintf(stderr, "gen: -e must be 0-2 for LTR\n");
+					errflg++;
+				}
 			} else if (params[num_gen-1].type == gentype_pocsag) {
 				params[num_gen-1].p.pocsag.errors = atoi(optarg);
 				if (params[num_gen-1].p.pocsag.errors < 0 || params[num_gen-1].p.pocsag.errors > 3) {
@@ -888,7 +928,7 @@ int main(int argc, char *argv[])
 					errflg++;
 				}
 			} else {
-				fprintf(stderr, "gen: -e requires -f or -P first\n");
+				fprintf(stderr, "gen: -e requires -f, -P or -l first\n");
 				errflg++;
 			}
 			break;

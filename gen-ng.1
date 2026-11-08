@@ -30,6 +30,8 @@ HDLC (High-Level Data Link Control packets)
 .IP \(bu 4
 CLIP FSK (Caller ID)
 .IP \(bu 4
+LTR-Standard repeater output words (300 bit/s sub-audible data)
+.IP \(bu 4
 Sine wave (test tone)
 .IP \(bu 4
 FLEX (paging protocol at 1600 baud 2-FSK)
@@ -66,6 +68,12 @@ Generate an HDLC packet containing the specified text.
 .B  \-c <string>
 Generate CLIP FSK (Caller ID) data.
 .TP
+.B  \-l <hex>[,<hex>...]
+Generate LTR-Standard repeater output words, back to back, as the FM-demodulated
+audio a receiver hears. Each word is given as its 24 data bits in hex (up to 32):
+area (1 bit), channel (5), home repeater (5), group (8) and free repeater (5),
+most significant bit first. The generator adds the sync and the checksum.
+.TP
 .B  \-f <message>
 Generate a FLEX pager message. The message is encoded as alphanumeric text.
 .TP
@@ -77,7 +85,9 @@ Must be in the range 1 to 2097151.
 Inject bit errors into FLEX or POCSAG codewords for BCH error correction testing.
 0 = no errors, 1 = one-bit errors, 2 = two-bit errors (correctable),
 3 = three-bit errors (uncorrectable, for negative testing).
-This option must follow \-f (FLEX) or \-P (POCSAG).
+This option must follow \-f (FLEX), \-P (POCSAG) or \-l (LTR).
+For LTR, 0-2 bit errors are injected in the data and checksum of every word;
+the decoder rejects them.
 .IP
 For FLEX without group calling, the selected number of bits is flipped in each
 of the first ten data codewords, including the block information, address and
@@ -122,6 +132,14 @@ Generate a DTMF tone sequence and decode it:
 .nf
 gen-ng -t raw -d "123456" /tmp/dtmf.raw
 multimon-ng -t raw -a DTMF /tmp/dtmf.raw
+.fi
+.RE
+.PP
+Generate an LTR idle word on repeater 1 and a call to group 112 on repeater 5:
+.RS
+.nf
+gen-ng -t raw -l 043fe1,14ae02 /tmp/ltr.raw
+multimon-ng -t raw -a LTR /tmp/ltr.raw
 .fi
 .RE
 .PP
