@@ -230,7 +230,38 @@ if [ $GEN_NG_AVAILABLE -eq 1 ]; then
     
     run_gen_decode_test "ZVEI1 with E" \
         '-z "1E234"' "ZVEI1" "ZVEI1: 1E234" || FAILED=1
-    
+
+    echo
+    echo "LTR end-to-end tests:"
+
+    # Words as 24 data bits (area, channel, home, group, free): idle, call and
+    # turn-off words from off-air recordings, and an area 1 idle word
+    LTR_WORDS="043fe1,14ae02,7cae05,a53fe9"
+
+    run_gen_decode_test "LTR words" \
+        "-l $LTR_WORDS" "LTR" \
+        "LTR: IDLE AREA=0 CHAN=1 HOME=1 GROUP=255 FREE=1" \
+        "LTR: CALL AREA=0 CHAN=5 HOME=5 GROUP=112 FREE=2" \
+        "LTR: TURNOFF AREA=0 CHAN=31 HOME=5 GROUP=112 FREE=5" \
+        "LTR: IDLE AREA=1 CHAN=9 HOME=9 GROUP=255 FREE=9" || FAILED=1
+
+    # Data at about a quarter of the voice level, as off air
+    run_gen_decode_test "LTR under voice tones" \
+        "-l $LTR_WORDS -a 0.15 -s 700 -a 0.6 -s 1300 -a 0.4" "LTR" \
+        "LTR: IDLE AREA=0 CHAN=1 HOME=1 GROUP=255 FREE=1" \
+        "LTR: CALL AREA=0 CHAN=5 HOME=5 GROUP=112 FREE=2" \
+        "LTR: TURNOFF AREA=0 CHAN=31 HOME=5 GROUP=112 FREE=5" \
+        "LTR: IDLE AREA=1 CHAN=9 HOME=9 GROUP=255 FREE=9" || FAILED=1
+
+    run_gen_decode_no_output_test "LTR 1-bit errors (rejected)" \
+        "-l $LTR_WORDS -e 1" "LTR" || FAILED=1
+
+    run_gen_decode_no_output_test "LTR 2-bit errors (rejected)" \
+        "-l $LTR_WORDS -e 2" "LTR" || FAILED=1
+
+    run_gen_decode_no_output_test "LTR voice tones only" \
+        "-s 700 -a 0.6 -s 1300 -a 0.4" "LTR" || FAILED=1
+
     echo
     echo "FLEX end-to-end tests:"
     
