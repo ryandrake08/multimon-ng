@@ -274,6 +274,18 @@ struct demod_state {
             char bstring[42];
         } x10;
 
+        struct l1_state_ltr {
+            uint32_t subsamp;
+            unsigned int n;         /* filtered samples so far */
+            float hist[512];        /* last filtered samples; a power of two longer than a word */
+            uint64_t cand_word;     /* best word found at the current position, if cand */
+            float cand_eye;
+            unsigned int cand_n;
+            int cand;
+            unsigned int last_n;    /* n at the end of the last word printed, if printed */
+            int printed;
+        } ltr;
+
 #ifndef NO_X11
         struct l1_state_scope {
             int datalen;
@@ -340,6 +352,8 @@ extern const struct demod_param demod_morse;
 
 extern const struct demod_param demod_x10;
 
+extern const struct demod_param demod_ltr;
+
 extern const struct demod_param demod_dumpcsv;
 #ifndef NO_X11
 extern const struct demod_param demod_scope;
@@ -363,7 +377,7 @@ extern const struct demod_param demod_sdl_scope;
 #define ALL_DEMOD &demod_poc5, &demod_poc12, &demod_poc24, &demod_flex, &demod_flex_next, &demod_gsc, &demod_eas, &demod_ufsk1200, &demod_clipfsk, &demod_fmsfsk, \
     &demod_afsk1200, &demod_afsk2400, &demod_afsk2400_2, &demod_afsk2400_3, &demod_hapn4800, \
     &demod_fsk9600, &demod_dtmf, &demod_dualtone, &demod_zvei1, &demod_zvei2, &demod_zvei3, &demod_dzvei, \
-    &demod_pzvei, &demod_eea, &demod_eia, &demod_ccir, &demod_morse, &demod_dumpcsv, &demod_x10 SCOPE_DEMOD SDL_SCOPE_DEMOD
+    &demod_pzvei, &demod_eea, &demod_eia, &demod_ccir, &demod_morse, &demod_dumpcsv, &demod_x10, &demod_ltr SCOPE_DEMOD SDL_SCOPE_DEMOD
 
 
 /* ---------------------------------------------------------------------- */

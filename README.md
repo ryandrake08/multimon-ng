@@ -17,6 +17,7 @@ multimon-ng is the successor of multimon. It decodes the following digital trans
 - MORSE_CW
 - DUMPCSV X10 SCOPE SDL_SCOPE
 - GSC (Golay Sequential Code)
+- LTR (LTR-Standard trunked radio repeater signalling)
 
 ## Building
 

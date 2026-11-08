@@ -230,6 +230,7 @@ set( SOURCES ${SOURCES}
 	demod_morse.c
 	demod_dumpcsv.c
 	demod_x10.c
+	demod_ltr.c
 	cJSON.c
 	${MACOS_AUDIO_SOURCE}
 )
@@ -281,7 +282,7 @@ endif()
 
 include(CTest)
 if( BUILD_TESTING AND NOT WIN32 AND BCH_SOURCE STREQUAL "bch.c" )
-	foreach( TEST_NAME IN ITEMS flex_next flex_address gen_flex )
+	foreach( TEST_NAME IN ITEMS flex_next flex_address gen_flex ltr )
 		set( TEST_SOURCES test/test_${TEST_NAME}.c bch.c )
 		if( TEST_NAME STREQUAL "gen_flex" )
 			list( APPEND TEST_SOURCES gen_flex.c )
