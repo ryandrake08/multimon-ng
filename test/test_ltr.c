@@ -1,10 +1,20 @@
-/* Standalone: cc -std=gnu11 -I. test/test_ltr.c -lm -o test_ltr */
+/* Standalone: cc -std=gnu11 -I. test/test_ltr.c cJSON.c -lm -o test_ltr */
 #include <stdarg.h>
 #include <stdio.h>
 #include "multimon.h"
 #include "../demod_ltr.c"
 
 static char printed[1024];
+int json_mode;
+
+void addJsonTimestamp(cJSON *json_output) { (void)json_output; }
+
+void printJson(cJSON *json_output) {
+    char *json = cJSON_PrintUnformatted(json_output);
+    size_t used = strlen(printed);
+    snprintf(printed + used, sizeof(printed) - used, "%s\n", json);
+    cJSON_free(json);
+}
 
 void _verbprintf(int level, const char *fmt, ...) {
     va_list args;
@@ -90,6 +100,10 @@ int main(void) {
     check_line(call, "LTR: CALL AREA=0 CHAN=5 HOME=5 GROUP=112 FREE=2\n");
     check_line(turnoff, "LTR: TURNOFF AREA=0 CHAN=31 HOME=5 GROUP=112 FREE=5\n");
     check_line(area1, "LTR: IDLE AREA=1 CHAN=9 HOME=9 GROUP=255 FREE=9\n");
+    json_mode = 1;
+    check_line(call, "{\"demod_name\":\"LTR\",\"message\":\"CALL\",\"area\":0,\"chan\":5,"
+                     "\"home\":5,\"group\":112,\"free\":2}\n");
+    json_mode = 0;
 
     /* one line per word, with back-to-back words and a receiver offset */
     feed(&idle, 1, 0, 0, "LTR: IDLE AREA=0 CHAN=1 HOME=1 GROUP=255 FREE=1\n");
