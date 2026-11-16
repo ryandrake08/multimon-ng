@@ -70,6 +70,24 @@ static void feed(const uint64_t *words, int count, float offset, int drop_first_
     check_printed("samples", expected);
 }
 
+/* Input that ends just after the centre of the last bit of a word: the word
+ * is still waiting for a wider eye, and is printed at the end of the input */
+static void check_end_of_input(void) {
+    static struct demod_state s;
+    int lead = 20, end = (2 * lead + 79) * SPB_NUM / (2 * SPB_DEN) + 1, i;
+
+    ltr_init(&s);
+    printed[0] = '\0';
+    for (i = 0; i < end; i++) {
+        int bit = i * SPB_DEN / SPB_NUM - lead;
+
+        ltr_sample(&s, bit < 0 ? 0 : (idle >> (39 - bit)) & 1 ? 1 : -1);
+    }
+    check_printed("before end of input", "");
+    ltr_deinit(&s);
+    check_printed("end of input", "LTR: IDLE AREA=0 CHAN=1 HOME=1 GROUP=255 FREE=1\n");
+}
+
 int main(void) {
     const uint64_t words[] = { call, call, turnoff };
     uint64_t bad;
@@ -124,6 +142,7 @@ int main(void) {
     feed(&bad, 1, 0, 0, "");
     bad = idle ^ (1ULL << 36);
     feed(&bad, 1, 0, 0, "");
+    check_end_of_input();
 
     if (!failed)
         printf("ltr: all tests passed\n");

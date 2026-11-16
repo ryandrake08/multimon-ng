@@ -109,6 +109,8 @@ static void ltr_print(uint64_t word)
     unsigned int free_rep = (unsigned int)(word >> 7) & 0x1F;
     const char *name = chan == 31 ? "TURNOFF" : group == 255 ? "IDLE" : "CALL";
 
+    if (json_mode && json_output == NULL)
+        return; /* avoid a null dereference under memory pressure */
     if (!json_mode) {
         verbprintf(0, "LTR: %s AREA=%u CHAN=%u HOME=%u GROUP=%u FREE=%u\n",
                    name, area, chan, home, group, free_rep);
@@ -230,6 +232,15 @@ static void ltr_init(struct demod_state *s)
         filt[i] /= sum;
 }
 
+/* At the end of the input, prints the word still waiting for a wider eye */
+static void ltr_deinit(struct demod_state *s)
+{
+    if (s->l1.ltr.cand) {
+        ltr_print(s->l1.ltr.cand_word);
+        s->l1.ltr.cand = 0;
+    }
+}
+
 /* ---------------------------------------------------------------------- */
 
 static void ltr_demod(struct demod_state *s, buffer_t buffer, int length)
@@ -251,7 +262,7 @@ static void ltr_demod(struct demod_state *s, buffer_t buffer, int length)
 /* ---------------------------------------------------------------------- */
 
 const struct demod_param demod_ltr = {
-    "LTR", true, FREQ_SAMP, FILTLEN, ltr_init, ltr_demod, NULL
+    "LTR", true, FREQ_SAMP, FILTLEN, ltr_init, ltr_demod, ltr_deinit
 };
 
 /* ---------------------------------------------------------------------- */
