@@ -267,6 +267,38 @@ if [ $GEN_NG_AVAILABLE -eq 1 ]; then
         '{"demod_name":"LTR","message":"IDLE","area":0,"chan":1,"home":1,"group":255,"free":1}' \
         '{"demod_name":"LTR","message":"TURNOFF","area":0,"chan":31,"home":5,"group":112,"free":5}' || FAILED=1
 
+    # Reject malformed options with the documented parse-error status and
+    # diagnostic. A crash or failed Wine launch must not count as success.
+    expect_ltr_gen_rejection() {
+        local expected="$1"
+        local output status
+        shift
+        if output=$(run_gen_ng -t raw "$@" "$TEST_DIR/tmp_$$.raw" 2>&1); then
+            status=0
+        else
+            status=$?
+        fi
+        if [ "$status" -ne 2 ] || [[ "$output" != *"$expected"* ]]; then
+            echo "  Expected exit 2 and '$expected'; got exit $status:"
+            printf '    %s\n' "$output"
+            return 1
+        fi
+        return 0
+    }
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    echo -n "Testing LTR malformed generator options... "
+    if expect_ltr_gen_rejection 'gen: -l requires up to' -l '043fe1,' &&
+       expect_ltr_gen_rejection 'gen: -l requires at least one' -l '' &&
+       expect_ltr_gen_rejection 'gen: -e must be 0-2' -l 043fe1 -e junk; then
+        echo -e "${GREEN}PASSED${NC} (rejected as expected)"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo -e "${RED}FAILED${NC}"
+        FAILED=1
+    fi
+    rm -f "$TEST_DIR/tmp_$$.raw"
+
     echo
     echo "FLEX end-to-end tests:"
     
