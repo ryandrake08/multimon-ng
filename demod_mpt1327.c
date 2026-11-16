@@ -572,21 +572,15 @@ static int mpt1327_address_candidate_conflicts(const struct demod_state *s, int 
      * spurious traffic message and suppress both real words. */
     if (s->l1.mpt1327.last_word_corrections <= (unsigned int)corrected)
         return 1;
-    /* At an aligned word boundary, a verified SYNT + address can look like
-     * a one-bit-correctable DATA word on the old alignment. Prefer the
-     * explicit traffic boundary. Also allow 16- or 32-bit alternating
-     * preambles followed by SYNC/SYNT at the word boundary. Else preserve
-     * the validated word containing an incidental marker. */
+    /* A verified SYNT + address can overlap a one-bit-correctable word on
+     * the old alignment. Prefer the explicit traffic boundary when the SYNT
+     * begins at the word boundary, or when at least 16 bits of reversals
+     * precede the SYNC/SYNT, wherever the corrected word ended. Else
+     * preserve the validated word containing an incidental marker. */
     if (s->l1.mpt1327.preceding_sync == SYNT &&
         s->l1.mpt1327.valid_age == 16)
         return 0;
-    if (s->l1.mpt1327.preceding_preamble == 0xAAAAu &&
-        s->l1.mpt1327.valid_age == 32)
-        return 0;
-    if (s->l1.mpt1327.history_bits >= 112 &&
-        s->l1.mpt1327.preceding_preamble == 0xAAAAu &&
-        s->l1.mpt1327.preceding_preamble2 == 0xAAAAu &&
-        s->l1.mpt1327.valid_age == 48)
+    if (s->l1.mpt1327.preceding_preamble == 0xAAAAu)
         return 0;
     return 1;
 }

@@ -407,6 +407,32 @@ static void check_contiguous_traffic_messages(void) {
     }
 }
 
+/* A TSC may insert any number of bit reversals between the messages of one
+ * transmission (3.3.2). After 24 bits of reversals, the reversals, SYNT and
+ * first 24 bits of this GTC form a word on the old alignment that one bit
+ * correction makes valid. The clean GTC after its reversals and SYNT must
+ * replace that word. */
+static void check_reversals_between_traffic_messages(void) {
+    static struct demod_state s;
+    const char *expected =
+        "MPT1327: MAINT PFIX=12 IDENT1=345 CHAN=123 OPER=0\n"
+        "MPT1327: GTC PFIX=12 IDENT1=586 D=1 CHAN=123 IDENT2=678 N=2\n";
+    mpt1327_init(&s);
+    printed[0] = '\0';
+    feed(&s, 0xAAAA, 16);
+    feed(&s, SYNT, 16);
+    feed(&s, 0x8C0ACC647B009D61ULL, 64);
+    feed(&s, 0xAAAAAA, 24);
+    feed(&s, SYNT, 16);
+    feed(&s, 0x8C12523D8A9AB7F3ULL, 64);
+    mpt1327_deinit(&s);
+    if (strcmp(printed, expected) != 0) {
+        fprintf(stderr, "reversals between traffic messages: got \"%s\", expected \"%s\"\n",
+                printed, expected);
+        failed = 1;
+    }
+}
+
 /* Vary an incidental SYNT through all possible positions of the 48-bit
  * DATA information field. Every following true bare SYNT must be found. */
 static void check_synt_in_all_data_positions(void) {
@@ -1114,6 +1140,7 @@ int main(void) {
     check_overlapping_synt_candidates();
     check_synt_in_valid_codeword_trailer();
     check_contiguous_traffic_messages();
+    check_reversals_between_traffic_messages();
     check_synt_in_all_data_positions();
     check_incidental_preamble_preserves_frame();
     check_control_boundary_preempts_false_frame();
